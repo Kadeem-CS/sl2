@@ -1,144 +1,70 @@
-
-# chat1.py
-# Streamlit chat app using Google Gen AI SDK (2026 models)
-# Requirements:
-#   - streamlit>=1.32.0
-#   - google-genai>=1.65.0
-# Secrets (Streamlit Cloud -> Settings -> Secrets):
-#   GEMINI_API_KEY = "YOUR_NEW_API_KEY"
-
 import os
-import time
 import streamlit as st
+import google.generativeai as genai
 
-# New, recommended SDK (GA): google-genai
-# ref: https://pypi.org/project/google-genai/  and SDK docs
-from google import genai
-from google.genai.types import GenerateContentConfig
+st.set_page_config(page_title="Gemini Chatbot", page_icon="🤖", layout="centered")
 
-# -------------------------------
-# Streamlit page config
-# -------------------------------
-st.set_page_config(
-    page_title="Gemini Chat • chat1.py",
-    page_icon="💬",
-    layout="centered",
-)
+# --- API Key ---
+API_KEY = st.secrets.get("GEMINI_API_KEY", os.getenv("GEMINI_API_KEY", ""))
 
-st.title("💬 Gemini Chat (chat1.py)")
-st.caption(
-    "New Google Gen AI SDK • Models: gemini-3.1-pro (flagship) or gemini-3-flash-preview (fast)."
-)
-
-# -------------------------------
-# API key (prefer Streamlit Secrets; fallback to env var)
-# -------------------------------
-API_KEY = st.secrets.get("GEMINI_API_KEY") or os.getenv("GEMINI_API_KEY")
 if not API_KEY:
-    st.error(
-        "Missing API key. Add `GEMINI_API_KEY` to Streamlit Secrets or your environment."
-    )
+    st.error("No API key found. Add GEMINI_API_KEY in `.streamlit/secrets.toml` or set env var GEMINI_API_KEY.")
     st.stop()
 
-# -------------------------------
-# Sidebar: model & generation settings
-# -------------------------------
-with st.sidebar:
-    st.header("Settings")
-    model = st.selectbox(
-        "Model",
-        options=[
-            "gemini-3.1-pro",        # Latest flagship (Feb 19, 2026)
-            "gemini-3-flash-preview" # Latest Flash-tier in 2026
-        ],
-        index=0,
-        help="Use Pro for best reasoning; Flash for speed and cost."
-    )
-    temperature = st.slider("Temperature", 0.0, 2.0, 0.7, 0.1)
-    top_p = st.slider("Top-p", 0.1, 1.0, 0.95, 0.05)
-    top_k = st.slider("Top-k", 1, 100, 40, 1)
-    max_output_tokens = st.number_input("Max output tokens", 64, 8192, 2048, 64)
+genai.configure(api_key=API_KEY)
 
-    st.markdown("---")
-    st.caption(
-        "Tip: If you see NotFound/404, switch to a current model and ensure "
-        "you're using the new SDK (google-genai)."
-    )
+MODEL_NAME = "gemini-2.5-flash"
 
-# -------------------------------
-# Initialize client (explicitly pass key)
-# -------------------------------
-client = genai.Client(api_key=API_KEY)
+# --- Page Header ---
+st.title("🤖 Gemini Chatbot")
+st.caption("Powered by Gemini 2.5 Flash · Session memory enabled")
 
-# -------------------------------
-# Session-state chat history
-# -------------------------------
+# --- Session State Init ---
+if "chat_session" not in st.session_state:
+    model = genai.GenerativeModel(model_name=MODEL_NAME)
+    st.session_state.chat_session = model.start_chat(history=[])
+
 if "messages" not in st.session_state:
-    st.session_state.messages = []
+    st.session_state.messages = []  # list of {"role": "user"|"assistant", "content": str}
 
-# Render chat history
-for m in st.session_state.messages:
-    with st.chat_message(m["role"]):
-        st.markdown(m["content"])
+# --- Sidebar Controls ---
+with st.sidebar:
+    st.header("⚙️ Settings")
+    temperature = st.slider("Temperature", 0.0, 1.0, 0.7, 0.1)
+    max_tokens = st.slider("Max output tokens", 256, 2048, 1024, 128)
+    st.divider()
+    if st.button("🗑️ Clear Chat", use_container_width=True):
+        st.session_state.messages = []
+        model = genai.GenerativeModel(model_name=MODEL_NAME)
+        st.session_state.chat_session = model.start_chat(history=[])
+        st.rerun()
+    st.caption(f"Model: `{MODEL_NAME}`")
+    st.caption(f"Messages in session: {len(st.session_state.messages)}")
 
-# -------------------------------
-# Chat input & generation
-# -------------------------------
-prompt = st.chat_input("Type your message...")
-if prompt:
-    # Add user message
-    st.session_state.messages.append({"role": "user", "content": prompt})
+# --- Render Chat History ---
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# --- Chat Input ---
+if user_input := st.chat_input("Type a message..."):
+    # Show user message
+    st.session_state.messages.append({"role": "user", "content": user_input})
     with st.chat_message("user"):
-        st.markdown(prompt)
+        st.markdown(user_input)
 
-    # Generate response
+    # Send to Gemini with session memory
     with st.chat_message("assistant"):
-        placeholder = st.empty()
-        with st.spinner("Thinking…"):
-            try:
-                cfg = GenerateContentConfig(
+        with st.spinner("Thinking..."):
+            response = st.session_state.chat_session.send_message(
+                user_input,
+                generation_config=genai.types.GenerationConfig(
                     temperature=temperature,
-                    top_p=top_p,
-                    top_k=top_k,
-                    max_output_tokens=max_output_tokens,
-                )
+                    max_output_tokens=max_tokens,
+                ),
+            )
+            reply = response.text
 
-                t0 = time.time()
-                resp = client.models.generate_content(
-                    model=model,
-                    contents=prompt,
-                    config=cfg,
-                )
-                dt = time.time() - t0
+        st.markdown(reply)
 
-                text = getattr(resp, "text", None) or "No text returned."
-                placeholder.markdown(text)
-
-                st.session_state.messages.append(
-                    {"role": "assistant", "content": text}
-                )
-                st.caption(f"⏱ {dt:.2f}s • Model: {model}")
-
-            except Exception as e:
-                err = str(e)
-                if "NotFound" in err or "404" in err:
-                    st.error(
-                        "Model not found. Use a current ID like "
-                        "`gemini-3.1-pro` or `gemini-3-flash-preview`."
-                    )
-                elif "UNAUTHENTICATED" in err or "permission" in err.lower():
-                    st.error(
-                        "Authentication error. Confirm `GEMINI_API_KEY` is set in "
-                        "Streamlit Secrets and is a valid Google AI Studio key."
-                    )
-                else:
-                    st.error(f"Unexpected error: {err}")
-
-# -------------------------------
-# Footer
-# -------------------------------
-st.markdown("---")
-st.caption(
-    "Built with the Google Gen AI SDK (GA). For structured outputs, tool use, and streaming, "
-    "see the SDK docs."
-)
+    st.session_state.messages.append({"role": "assistant", "content": reply})
