@@ -1,5 +1,5 @@
 google-ge0nerativeai>=0.8.
 streamlit
 supabase
-pip install --upgrade pip
-
+streamlit>=1.32.0
+google-genai>=1.65.0
