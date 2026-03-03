@@ -122,3 +122,28 @@ if prompt:
                 st.caption(f"⏱️ {elapsed:.2f}s · Model: {model}")
 
             except Exception as e:
+                # Helpful errors for common misconfigurations
+                err_msg = str(e)
+
+                if "NotFound" in err_msg or "404" in err_msg:
+                    st.error(
+                        "Model not found. Make sure you're using a current model "
+                        "like `gemini-3.1-pro` or `gemini-3-flash-preview`."
+                    )
+                elif "UNAUTHENTICATED" in err_msg or "permission" in err_msg.lower():
+                    st.error(
+                        "Authentication error. Confirm your `GEMINI_API_KEY` is set "
+                        "in Streamlit Secrets and is a valid **Google AI Studio** key."
+                    )
+                else:
+                    st.error(f"Unexpected error: {err_msg}")
+
+# -------------------------------
+# Footer
+# -------------------------------
+st.markdown("---")
+st.caption(
+    "Note: For long/streaming responses or tool use, you can switch to the "
+    "Live API or structured outputs in the Gen AI SDK."
+)
+``
